@@ -5,6 +5,9 @@ from textblob import TextBlob
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from datetime import datetime
 from urllib.parse import quote
+import ssl
+import certifi
+import urllib.request
 
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
@@ -17,7 +20,10 @@ labels = ['Positive', 'Negative', 'Neutral']
 
 def fetch_news(query, num_articles=10):
     rss_url = f"https://news.google.com/rss/search?q={quote(query)}"
-    feed = feedparser.parse(rss_url)
+    ssl_context = ssl.create_default_context(cafile=certifi.where())
+    handler = urllib.request.HTTPSHandler(context=ssl_context)
+    feed = feedparser.parse(rss_url, request_headers={"User-Agent": "Mozilla/5.0"},
+                            handlers=[handler])
     news_items = feed.entries[:num_articles]
 
     articles = []
@@ -101,6 +107,9 @@ def summarize_sentiments(articles):
     total = len(articles)
     print("\n--- Market Sentiment Summary ---")
     print(f"Total articles analyzed: {total}")
+    if total == 0:
+        print("No articles were fetched. Please check your internet connection or try different queries.")
+        return
     for sentiment, count in summary.items():
         percent = (count / total) * 100
         print(f"{sentiment}: {count} ({percent:.2f}%)")
