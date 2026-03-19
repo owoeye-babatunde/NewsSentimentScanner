@@ -2,7 +2,7 @@
 News Sentiment Scanner
 ======================
 Fetches recent news articles about gold markets from Google News RSS feeds
-and performs sentiment analysis on the headlines using VADER to gauge
+and performs sentiment analysis on the headlines using FinBERT to gauge
 overall market sentiment (Positive, Negative, or Neutral).
 """
 
@@ -106,65 +106,60 @@ def fetch_article_content(url):
         return "Content not retrieved."
 
 
+# --- VADER Alternative ---
+# Uncomment this function (and comment out the FinBERT version below) to use
+# VADER, a rule-based sentiment analyzer. Faster and lighter than FinBERT
+# but less accurate for financial news.
+#
+# def analyze_sentiment(text):
+#     """Analyze sentiment using VADER (rule-based sentiment analyzer)."""
+#     analyzer = SentimentIntensityAnalyzer()
+#     scores = analyzer.polarity_scores(text)
+#     polarity = scores['compound']  # Normalized composite score (-1 to +1)
+#
+#     if polarity > 0.05:
+#         sentiment = 'Positive'
+#     elif polarity < -0.05:
+#         sentiment = 'Negative'
+#     else:
+#         sentiment = 'Neutral'
+#
+#     return polarity, sentiment
+
+
 def analyze_sentiment(text):
     """
-    Analyze the sentiment of a text string using VADER.
+    Analyze the sentiment of a text string using FinBERT.
 
-    VADER (Valence Aware Dictionary and sEntiment Reasoner) is a rule-based
-    sentiment analyzer that returns a compound score from -1 (most negative)
-    to +1 (most positive). Thresholds of +/-0.05 are used to classify sentiment.
+    FinBERT is a BERT model fine-tuned on financial text (yiyanghkust/finbert-tone).
+    It classifies text into Positive, Negative, or Neutral with a confidence score.
+    More accurate than rule-based approaches for financial news headlines.
 
     Args:
         text: The text to analyze (typically a news headline).
 
     Returns:
-        A tuple of (polarity, sentiment) where polarity is a float (-1 to 1)
+        A tuple of (confidence, sentiment) where confidence is a float (0 to 1)
         and sentiment is one of 'Positive', 'Negative', or 'Neutral'.
     """
-    analyzer = SentimentIntensityAnalyzer()
-    scores = analyzer.polarity_scores(text)
-    polarity = scores['compound']  # Normalized composite score
+    if not text.strip():
+        return 0.0, 'Neutral'
 
-    # TextBlob alternative (pattern-based, less accurate for news):
-    # analysis = TextBlob(text)
-    # polarity = analysis.sentiment.polarity
+    # Tokenize and truncate to FinBERT's max input length (512 tokens)
+    inputs = finbert_tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
 
-    # Classify using standard VADER thresholds
-    if polarity > 0.05:
-        sentiment = 'Positive'
-    elif polarity < -0.05:
-        sentiment = 'Negative'
-    else:
-        sentiment = 'Neutral'
+    # Run inference without tracking gradients (faster, less memory)
+    with torch.no_grad():
+        outputs = finbert_model(**inputs)
 
-    return polarity, sentiment
+    # Convert logits to probabilities and pick the highest-confidence label
+    logits = outputs.logits
+    probabilities = torch.softmax(logits, dim=1).numpy()[0]
+    max_index = np.argmax(probabilities)
+    sentiment = labels[max_index]
+    confidence = probabilities[max_index]
 
-
-# --- FinBERT Alternative ---
-# Uncomment this function (and comment out the VADER version above) to use
-# FinBERT, a BERT model fine-tuned on financial text. More accurate for
-# financial news but slower and requires PyTorch.
-#
-# def analyze_sentiment(text):
-#     """Analyze sentiment using FinBERT (finance-specific transformer model)."""
-#     if not text.strip():
-#         return 0.0, 'Neutral'
-#
-#     # Tokenize and truncate to FinBERT's max input length (512 tokens)
-#     inputs = finbert_tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
-#
-#     # Run inference without tracking gradients (faster, less memory)
-#     with torch.no_grad():
-#         outputs = finbert_model(**inputs)
-#
-#     # Convert logits to probabilities and pick the highest-confidence label
-#     logits = outputs.logits
-#     probabilities = torch.softmax(logits, dim=1).numpy()[0]
-#     max_index = np.argmax(probabilities)
-#     sentiment = labels[max_index]
-#     confidence = probabilities[max_index]
-#
-#     return confidence, sentiment
+    return confidence, sentiment
 
 
 def summarize_sentiments(articles):
@@ -232,8 +227,8 @@ def main():
         print(f"Link: {article['link']}")
         print(f"Published: {article['published']}")
 
-        polarity, sentiment = analyze_sentiment(article['title'])
-        print(f"Sentiment: {sentiment} (Polarity: {polarity:.2f})\n")
+        confidence, sentiment = analyze_sentiment(article['title'])
+        print(f"Sentiment: {sentiment} (Confidence: {confidence:.2f})\n")
 
     # Print the overall sentiment distribution
     summarize_sentiments(all_articles)
